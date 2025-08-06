@@ -1,0 +1,22 @@
+# Sample RTSP URLs file for people counting
+# Format: One RTSP URL per line
+# Lines starting with # are ignored (comments)
+# Make sure URLs include username and password
+
+# Example Hikvision cameras
+rtsp://admin:password123@192.168.1.100:554/Streaming/Channels/101
+rtsp://admin:password123@192.168.1.101:554/Streaming/Channels/101
+
+# Example Dahua cameras
+# rtsp://admin:admin123@192.168.1.102:554/cam/realmonitor?channel=1&subtype=0
+# rtsp://admin:admin123@192.168.1.103:554/cam/realmonitor?channel=2&subtype=0
+
+# Example Axis camera
+# rtsp://user:userpass@192.168.1.104:554/axis-media/media.amp
+
+# Example generic RTSP streams
+# rtsp://username:password@192.168.1.105:554/stream1
+# rtsp://username:password@192.168.1.106:554/live/ch00_0
+
+# You can add as many URLs as needed
+# The system will automatically create a window for each active URL
