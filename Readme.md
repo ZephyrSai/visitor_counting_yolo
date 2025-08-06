@@ -16,7 +16,7 @@ A high-performance, GPU-accelerated people counting system for multiple RTSP str
 
 ## 📋 Requirements
 
-- Python 3.8+
+- Python 3.10+
 - NVIDIA GPU (recommended) or CPU
 - CUDA-compatible GPU for acceleration
 - RTSP-enabled IP cameras
@@ -223,11 +223,6 @@ Runtime: 01:45         # Time since start
 | Center | 0.4-0.6 | General counting |
 | Bottom/Right | 0.7-1.0 | Exit detection |
 
-Test optimal position:
-```bash
-python test_line_position.py "rtsp://your_camera_url"
-```
-
 ## 🚨 Troubleshooting
 
 ### GPU Not Detected
@@ -280,17 +275,6 @@ python test_line_position.py "rtsp://your_camera_url"
    ```bash
    nvidia-smi -l 1
    ```
-
-## 📈 Performance Optimization
-
-### GPU Memory Usage
-
-| Model | VRAM Usage | Speed | Accuracy |
-|-------|------------|-------|----------|
-| yolo11n | ~1.5 GB | Fastest | Good |
-| yolo11s | ~2.5 GB | Fast | Better |
-| yolo11m | ~4 GB | Medium | High |
-| yolo11l | ~6 GB | Slow | Very High |
 
 ### Recommended Settings
 
