@@ -1,18 +1,19 @@
-# 🎯 Multi-Stream People Counter with YOLO and ByteTrack
+# 🎯 Advanced Multi-Stream People Counter with Bidirectional Tracking
 
-A high-performance, GPU-accelerated people counting system for multiple RTSP streams. Features directional counting, ThingsBoard IoT integration, and real-time visualization.
+A high-performance, GPU-accelerated people counting system for multiple RTSP streams. Features bidirectional counting (IN/OUT), per-camera model selection, ThingsBoard IoT integration, and real-time visualization.
 
-## 🌟 Features
+## 🌟 Key Features
 
 - **Multi-Stream Support**: Process multiple RTSP cameras simultaneously
+- **Bidirectional Counting**: Track people entering AND exiting in a single camera
+- **Per-Camera Model Selection**: Use different YOLO models for different cameras
 - **GPU Acceleration**: NVIDIA CUDA support for high-performance inference
-- **Directional Counting**: Count people moving in specific directions (up/down/left/right)
 - **Smart Tracking**: ByteTrack algorithm for robust multi-object tracking
-- **IoT Integration**: Optional ThingsBoard telemetry for real-time dashboards
+- **IoT Integration**: Real-time ThingsBoard telemetry with separate IN/OUT metrics
 - **Configurable Line Position**: Adjustable counting line placement
-- **Frame Rate Optimization**: Process only N frames per second while maintaining smooth tracking
+- **Frame Rate Optimization**: Per-camera FPS settings
 - **Automatic Reconnection**: Handles network interruptions gracefully
-- **Individual Visualization**: Separate window for each camera stream
+- **Net Flow Calculation**: Automatic calculation of net people flow (IN - OUT)
 
 ## 📋 Requirements
 
@@ -54,11 +55,10 @@ Based on your GPU generation:
 | GPU Generation | Recommended CUDA | Compute Capability |
 |----------------|------------------|-------------------|
 | **RTX 40 Series** (4090, 4080, 4070) | CUDA 12.1+ | 8.9 |
-| **RTX 30 Series** (3090, 3080, 3070, 3060, 3050) | CUDA 11.8+ | 8.6 |
+| **RTX 30 Series** (3090, 3080, 3070, 3060) | CUDA 11.8+ | 8.6 |
 | **RTX 20 Series** (2080 Ti, 2080, 2070, 2060) | CUDA 11.8+ | 7.5 |
 | **GTX 16 Series** (1660, 1650) | CUDA 11.8+ | 7.5 |
 | **GTX 10 Series** (1080 Ti, 1080, 1070, 1060) | CUDA 11.8+ | 6.1 |
-| **Older GPUs** | Check [NVIDIA CUDA GPUs](https://developer.nvidia.com/cuda-gpus) | Varies |
 
 #### Step 3: Install PyTorch
 
@@ -85,143 +85,220 @@ pip install torch torchvision torchaudio
 python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None"}')"
 ```
 
-### 4. Download YOLO Model
+### 4. Download YOLO Models
 
-The model will auto-download on first run, or manually:
+Models auto-download on first run, or manually download:
 
 ```bash
-# Download YOLOv11 nano model (recommended for speed)
-wget https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov11n.pt
+# Lightweight model for simple scenes
+wget https://github.com/ultralytics/assets/releases/download/v8.2.0/yolo11n.pt
 
-# For better accuracy (slower)
-wget https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov11s.pt
+# Standard model for general use
+wget https://github.com/ultralytics/assets/releases/download/v8.2.0/yolo11x.pt
+
+# Large model for complex/crowded scenes
+wget https://github.com/ultralytics/assets/releases/download/v8.2.0/yolo11l.pt
 ```
 
 ## 📁 Configuration
 
-### 1. Create Camera List File
+### Camera Configuration File Format
 
-Create `cameras.txt` with your RTSP URLs (one per line):
+Create `cameras.txt` with flexible per-camera settings:
 
-```
-rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101
-rtsp://admin:password@192.168.1.101:554/Streaming/Channels/101
-rtsp://admin:password@192.168.1.102:554/Streaming/Channels/101
+```bash
+# Format: URL|model|direction|fps
+# All fields except URL are optional
+
+# BIDIRECTIONAL COUNTING - Counts both IN and OUT
+rtsp://admin:pass@192.168.1.100:554/entrance|yolo11x.pt|bidirectional_horizontal
+rtsp://admin:pass@192.168.1.101:554/hallway|yolo11x.pt|bidirectional_vertical
+
+# SINGLE DIRECTION with lightweight model
+rtsp://admin:pass@192.168.1.102:554/stream|yolo11n.pt|top_to_bottom|10
+
+# Complex entrance with large model and bidirectional
+rtsp://admin:pass@192.168.1.104:554/main_door|yolo11l.pt|bidirectional_horizontal|3
+
+# Using defaults from command line
+rtsp://admin:pass@192.168.1.105:554/stream
 ```
 
-### 2. RTSP URL Formats
+### Configuration Options Per Camera
 
-**Hikvision:**
-```
-rtsp://username:password@IP:554/Streaming/Channels/101
-```
+| Field | Options | Description |
+|-------|---------|-------------|
+| **URL** | RTSP URL | Camera stream URL (required) |
+| **Model** | yolo11n.pt, yolo11x.pt, yolo11l.pt | YOLO model to use |
+| **Direction** | See below | Counting direction |
+| **FPS** | 1-30 | Frames to process per second |
 
-**Dahua:**
-```
-rtsp://username:password@IP:554/cam/realmonitor?channel=1&subtype=0
-```
+### Direction Options
 
-**Axis:**
-```
-rtsp://username:password@IP/axis-media/media.amp
-```
+| Direction | Description | Use Case |
+|-----------|-------------|----------|
+| `top_to_bottom` | Count downward movement | Entrances |
+| `bottom_to_top` | Count upward movement | Exits |
+| `left_to_right` | Count rightward movement | Corridors |
+| `right_to_left` | Count leftward movement | Corridors |
+| **`bidirectional_horizontal`** | Count BOTH up/down | Doors, entrances |
+| **`bidirectional_vertical`** | Count BOTH left/right | Hallways, corridors |
 
 ## 🎮 Usage
 
 ### Basic Usage
 ```bash
-python multi_stream_thingsboard.py --urls-file cameras.txt
+python people_counter.py --urls-file cameras.txt
 ```
 
 ### Standalone Mode (No ThingsBoard)
 ```bash
-python multi_stream_thingsboard.py --urls-file cameras.txt --no-thingsboard
+python people_counter.py --urls-file cameras.txt --no-thingsboard
 ```
 
-### Custom Configuration
+### Custom Default Settings
 ```bash
-python multi_stream_thingsboard.py \
+python people_counter.py \
   --urls-file cameras.txt \
-  --line-position 0.3 \
-  --process-fps 10 \
-  --direction top_to_bottom \
-  --model yolo11s.pt
+  --line-position 0.5 \
+  --process-fps 5 \
+  --direction bidirectional_horizontal \
+  --model yolo11x.pt
 ```
 
-### All Options
+### All Command Line Options
+
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--urls-file` | Required | Path to file with RTSP URLs |
+| `--urls-file` | Required | Path to camera configuration file |
 | `--thingsboard-host` | 192.168.1.11 | ThingsBoard server IP |
 | `--access-token` | (built-in) | ThingsBoard device token |
-| `--no-thingsboard` | False | Disable IoT telemetry |
-| `--process-fps` | 5 | Frames to process per second |
-| `--direction` | top_to_bottom | Counting direction |
-| `--model` | yolo12n.pt | YOLO model file |
-| `--line-position` | 0.75 | Line position (0.0-1.0) |
+| `--no-thingsboard` | False | Run without IoT telemetry |
+| `--process-fps` | 5 | Default FPS (can override per camera) |
+| `--direction` | top_to_bottom | Default direction (can override per camera) |
+| `--model` | yolo11x.pt | Default model (can override per camera) |
+| `--line-position` | 0.7 | Counting line position (0.0-1.0) |
 
 ## 📊 Display Information
 
-### With ThingsBoard (default):
+### Bidirectional Camera Display
 ```
-Total Count: 234        # All-time total
-This Hour: 45          # Current hour count
-This Minute: 3         # Current minute count
-Active Tracks: 2       # Currently tracking
-Source FPS: 25.1       # Camera stream FPS
-Process FPS: 5.0 / 5   # Actual/Target
-Runtime: 01:45         # Time since start
+Model: yolo11x.pt
+═══ Down↓ (IN) ═══
+Total: 234
+Hour: 45
+Minute: 3
+═══ Up↑ (OUT) ═══
+Total: 189
+Hour: 32
+Minute: 2
+═══ NET: 45 ═══
+Active Tracks: 2
+Runtime: 01:45
 ```
 
-### Standalone Mode:
+### Single Direction Display
 ```
-Total Count: 234        # All-time total
-This Hour: 45          # Current hour count
-Active Tracks: 2       # Currently tracking
-Source FPS: 25.1       # Camera stream FPS
-Process FPS: 5.0 / 5   # Actual/Target
-Runtime: 01:45         # Time since start
+Model: yolo11n.pt
+Total Count: 234
+This Hour: 45
+This Minute: 3
+Active Tracks: 2
+Runtime: 01:45
 ```
 
 ## 🌐 ThingsBoard Integration
 
-### Data Format
+### Telemetry Data Format
 
-**Minute Updates (when count > 0):**
+**Bidirectional Cameras (per minute):**
 ```json
 {
-  "cam_192_168_1_100_count": 5,      // This minute
-  "cam_192_168_1_100_total": 127,    // Total since start
-  "total_count": 8,                   // All cameras this minute
-  "all_cameras_total": 216            // All cameras total
+  "cam_192_168_1_100_in": 5,           // People entered this minute
+  "cam_192_168_1_100_out": 3,          // People exited this minute
+  "cam_192_168_1_100_net": 2,          // Net flow (in - out)
+  "cam_192_168_1_100_total_in": 234,   // Total entered since start
+  "cam_192_168_1_100_total_out": 189,  // Total exited since start
+  "cam_192_168_1_100_total_net": 45,   // Total net flow
+  "total_in": 8,                       // All cameras IN this minute
+  "total_out": 5,                      // All cameras OUT this minute
+  "total_net": 3                       // All cameras NET this minute
+}
+```
+
+**Single Direction Cameras (per minute):**
+```json
+{
+  "cam_192_168_1_102_count": 5,        // This minute
+  "cam_192_168_1_102_total": 127,      // Total since start
+  "total_count": 8                     // All single-direction cameras
 }
 ```
 
 **Hourly Updates:**
 ```json
 {
-  "cam_192_168_1_100_hourly": 45,    // This hour
-  "total_hourly": 77                  // All cameras this hour
+  "cam_192_168_1_100_hourly_in": 45,   // Entered this hour
+  "cam_192_168_1_100_hourly_out": 32,  // Exited this hour
+  "cam_192_168_1_100_hourly_net": 13,  // Net this hour
+  "total_hourly_in": 77,               // All cameras IN
+  "total_hourly_out": 54,              // All cameras OUT
+  "total_hourly_net": 23               // All cameras NET
 }
 ```
 
-### Dashboard Setup
+### Dashboard Widget Setup
 
-1. Create a device in ThingsBoard
-2. Copy the access token
-3. Create widgets for:
-   - `{camera}_count` - Minute counts
-   - `{camera}_total` - Running totals
-   - `{camera}_hourly` - Hourly counts
-   - `all_cameras_total` - Combined total
+Create widgets in ThingsBoard for:
+
+**Bidirectional Metrics:**
+- `{camera}_in` - Real-time entries
+- `{camera}_out` - Real-time exits
+- `{camera}_net` - Net flow
+- `{camera}_total_in` - Cumulative entries
+- `{camera}_total_out` - Cumulative exits
+
+**Aggregate Metrics:**
+- `total_in` - All cameras entries/minute
+- `total_out` - All cameras exits/minute
+- `total_net` - System-wide net flow
+
+## 🎯 Model Selection Guide
+
+### Model Comparison
+
+| Model | Speed | Accuracy | Use Case |
+|-------|-------|----------|------------|----------|
+| **yolo11n.pt** | Fastest | Good | Simple scenes, high FPS needs |
+| **yolo11s.pt** | Fast | Better | Balanced performance |
+| **yolo11m.pt** | Moderate | High | Standard surveillance |
+| **yolo11l.pt** | Slower | Highest | Crowded/complex scenes |
+| **yolo11x.pt** | Slowest | Best | Maximum accuracy |
+
+### Recommended Configurations
+
+**Store Entrance (Bidirectional):**
+```
+rtsp://url|yolo11x.pt|bidirectional_horizontal|5
+```
+
+**Hallway (Simple):**
+```
+rtsp://url|yolo11n.pt|left_to_right|10
+```
+
+**Crowded Area:**
+```
+rtsp://url|yolo11l.pt|bidirectional_horizontal|3
+```
 
 ## 🎯 Line Position Guide
 
 | Position | Value | Use Case |
 |----------|-------|----------|
-| Top/Left | 0.0-0.3 | Entrance detection |
-| Center | 0.4-0.6 | General counting |
-| Bottom/Right | 0.7-1.0 | Exit detection |
+| Near entrance | 0.2-0.3 | Early detection |
+| Center | 0.4-0.6 | Balanced counting |
+| Near exit | 0.7-0.9 | Late detection |
 
 ## 🚨 Troubleshooting
 
@@ -243,13 +320,17 @@ Runtime: 01:45         # Time since start
    python -c "import torch; print(torch.cuda.is_available())"
    ```
 
+### MQTT Connection Issues
+
+If running multiple instances causes MQTT disconnections:
+- Use the single-instance solution with per-camera models
+- Or use different access tokens for each instance
+
 ### Stream Connection Issues
 
 1. **Test RTSP URL:**
    ```bash
    ffplay "rtsp://username:password@ip:port/path"
-   # or
-   vlc "rtsp://username:password@ip:port/path"
    ```
 
 2. **Check Network:**
@@ -257,56 +338,83 @@ Runtime: 01:45         # Time since start
    ping camera_ip
    ```
 
-3. **Verify Credentials:** Ensure username/password are correct
+### Performance Optimization
 
-### Performance Issues
+**For Multiple Models:**
+- Models are cached in memory after first load
+- GPU memory usage increases with model variety
+- Monitor with `nvidia-smi -l 1`
 
-1. **Reduce Processing FPS:**
-   ```bash
-   --process-fps 3
-   ```
+**Memory Management:**
+```bash
+# Check GPU memory usage
+nvidia-smi --query-gpu=memory.used,memory.total --format=csv
 
-2. **Use Lighter Model:**
-   ```bash
-   --model yolo11n.pt
-   ```
+# Limit GPU memory growth (add to script)
+import torch
+torch.cuda.set_per_process_memory_fraction(0.8)
+```
 
-3. **Monitor GPU Usage:**
-   ```bash
-   nvidia-smi -l 1
-   ```
+## 📊 Example Deployment Scenarios
 
-### Recommended Settings
+### Retail Store Setup
+```
+# cameras.txt
+# Main entrance - bidirectional with high accuracy
+rtsp://admin:pass@192.168.1.10:554/entrance|yolo11x.pt|bidirectional_horizontal|5
 
-**High Traffic Areas:**
-- Process FPS: 8-10
-- Model: yolo11s or yolo11m
-- Line Position: 0.3 (early detection)
+# Side entrances - single direction, lighter model
+rtsp://admin:pass@192.168.1.11:554/side1|yolo11n.pt|top_to_bottom|8
+rtsp://admin:pass@192.168.1.12:554/side2|yolo11n.pt|bottom_to_top|8
 
-**Normal Traffic:**
-- Process FPS: 5
-- Model: yolo11n
-- Line Position: 0.5
+# Storage area - low traffic, minimal processing
+rtsp://admin:pass@192.168.1.13:554/storage|yolo11n.pt|left_to_right|2
+```
 
-**Low Traffic:**
-- Process FPS: 2-3
-- Model: yolo11n
-- Line Position: 0.7
+### Office Building Setup
+```
+# cameras.txt
+# Lobby - high traffic bidirectional
+rtsp://admin:pass@10.0.0.10:554/lobby|yolo11l.pt|bidirectional_horizontal|5
+
+# Elevator areas - medium traffic
+rtsp://admin:pass@10.0.0.11:554/elevator1|yolo11s.pt|bidirectional_vertical|5
+rtsp://admin:pass@10.0.0.12:554/elevator2|yolo11s.pt|bidirectional_vertical|5
+
+# Stairwells - directional counting
+rtsp://admin:pass@10.0.0.13:554/stairs_up|yolo11n.pt|bottom_to_top|3
+rtsp://admin:pass@10.0.0.14:554/stairs_down|yolo11n.pt|top_to_bottom|3
+```
 
 ## 🔒 Security Considerations
 
-1. **Secure Storage:**
+1. **Secure Credentials:**
    ```bash
    chmod 600 cameras.txt  # Restrict file permissions
    ```
 
-2. **Environment Variables:** For production, use environment variables:
+2. **Environment Variables:**
    ```bash
    export TB_HOST="192.168.1.11"
    export TB_TOKEN="your_token"
    ```
 
-3. **Network Security:** Use VPN or secure network for RTSP streams
+3. **Network Security:** 
+   - Use VPN for remote cameras
+   - Implement firewall rules for RTSP ports
+   - Use strong passwords for cameras
+
+## 📈 Performance Metrics
+
+Typical performance on RTX 3070:
+- **yolo11n.pt**: ~120 FPS per stream
+- **yolo11x.pt**: ~30 FPS per stream
+- **yolo11l.pt**: ~15 FPS per stream
+
+With 4 cameras at 5 FPS processing:
+- GPU Usage: 40-60%
+- GPU Memory: 4-6 GB
+- CPU Usage: 20-30%
 
 ## 📄 License
 
@@ -322,9 +430,12 @@ This project is licensed under the MIT License.
 
 For issues and questions:
 1. Check the troubleshooting section
-2. Review closed issues on GitHub
-3. Open a new issue with details
+2. Review example configurations
+3. Open an issue with:
+   - Camera configuration used
+   - Error messages
+   - GPU/System specifications
 
 ---
 
-**Note:** Always ensure you have permission to monitor areas with cameras and comply with local privacy laws.
+**Note:** Always ensure you have permission to monitor areas with cameras and comply with local privacy laws and regulations.
