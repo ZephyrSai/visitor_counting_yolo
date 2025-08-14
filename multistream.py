@@ -1,6 +1,6 @@
 """
-Multi-stream people counter with ThingsBoard MQTT integration.
-Sends counts every minute and handles errors gracefully.
+Multi-stream people counter with per-camera model selection and bidirectional counting.
+Supports different YOLO models and bidirectional counting for each camera.
 """
 
 import threading
@@ -19,10 +19,10 @@ from ultralytics import YOLO
 import torch
 
 class EnhancedPeopleCounter:
-    """Enhanced people counter with MQTT and adjustable line position."""
+    """Enhanced people counter with bidirectional counting support."""
     
-    def __init__(self, rtsp_url, model_path='yolo12n.pt', process_fps=5, 
-                 direction='top_to_bottom', line_position_ratio=0.75):
+    def __init__(self, rtsp_url, model_path='yolo11x.pt', process_fps=5, 
+                 direction='top_to_bottom', line_position_ratio=0.7):
         """
         Initialize enhanced counter.
         
@@ -30,8 +30,8 @@ class EnhancedPeopleCounter:
             rtsp_url: RTSP stream URL
             model_path: Path to YOLO model
             process_fps: Frames to process per second
-            direction: Counting direction
-            line_position_ratio: Position of line (0.0=top/left, 1.0=bottom/right, 0.75=default)
+            direction: Counting direction ('bidirectional_horizontal', 'bidirectional_vertical', or single direction)
+            line_position_ratio: Position of line (0.0=top/left, 1.0=bottom/right, 0.7=default)
         """
         self.rtsp_url = rtsp_url
         self.model_path = model_path
@@ -39,12 +39,15 @@ class EnhancedPeopleCounter:
         self.direction = direction
         self.line_position_ratio = line_position_ratio
         
+        # Check if bidirectional counting is enabled
+        self.is_bidirectional = direction in ['bidirectional_horizontal', 'bidirectional_vertical']
+        
         # Check GPU availability
         if torch.cuda.is_available():
-            print(f"✓ GPU detected: {torch.cuda.get_device_name(0)}")
+            print(f"✓ GPU detected for {model_path}: {torch.cuda.get_device_name(0)}")
             os.environ['CUDA_VISIBLE_DEVICES'] = '0'
         else:
-            print("⚠ Running on CPU (GPU not available)")
+            print(f"⚠ Running {model_path} on CPU (GPU not available)")
         
         # Initialize YOLO model
         self.model = YOLO(model_path)
@@ -53,11 +56,33 @@ class EnhancedPeopleCounter:
         
         # Tracking variables
         self.track_history = defaultdict(lambda: [])
-        self.crossed_ids = set()
-        self.people_count = 0
-        self.minute_count = 0  # Count for current minute
-        self.hour_count = 0    # Count for current hour
-        self.total_count = 0   # Total count since start
+        
+        # Separate tracking for bidirectional counting
+        if self.is_bidirectional:
+            # For bidirectional counting, track both directions
+            self.crossed_ids_forward = set()  # top_to_bottom or left_to_right
+            self.crossed_ids_backward = set()  # bottom_to_top or right_to_left
+            
+            # Separate counts for each direction
+            self.counts = {
+                'forward': {
+                    'total': 0,
+                    'minute': 0,
+                    'hour': 0
+                },
+                'backward': {
+                    'total': 0,
+                    'minute': 0,
+                    'hour': 0
+                }
+            }
+        else:
+            # Single direction counting
+            self.crossed_ids = set()
+            self.people_count = 0
+            self.minute_count = 0
+            self.hour_count = 0
+            self.total_count = 0
         
         # Time tracking
         self.current_hour = datetime.now().hour
@@ -73,6 +98,8 @@ class EnhancedPeopleCounter:
         self.box_color = (255, 0, 0)
         self.text_color = (255, 255, 255)
         self.track_color = (255, 255, 0)
+        self.forward_color = (0, 255, 255)  # Cyan for forward
+        self.backward_color = (255, 0, 255)  # Magenta for backward
         
         # Video properties
         self.cap = None
@@ -100,7 +127,7 @@ class EnhancedPeopleCounter:
             self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
             
             # Set line position based on direction and ratio
-            if self.direction in ['top_to_bottom', 'bottom_to_top']:
+            if self.direction in ['top_to_bottom', 'bottom_to_top', 'bidirectional_horizontal']:
                 self.is_horizontal_line = True
                 self.line_position = int(self.frame_height * self.line_position_ratio)
             else:
@@ -113,19 +140,52 @@ class EnhancedPeopleCounter:
             return False
     
     def draw_line(self, frame):
-        """Draw the counting line on the frame."""
+        """Draw the counting line on the frame with direction indicators."""
         if self.is_horizontal_line:
             cv2.line(frame, (0, self.line_position), (self.frame_width, self.line_position), 
                      self.line_color, 2)
+            
+            # Add direction arrows for bidirectional
+            if self.is_bidirectional:
+                # Arrow pointing down (forward)
+                cv2.arrowedLine(frame, (50, self.line_position - 30), 
+                              (50, self.line_position - 10), self.forward_color, 2)
+                cv2.putText(frame, "IN", (60, self.line_position - 15),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.forward_color, 2)
+                
+                # Arrow pointing up (backward)
+                cv2.arrowedLine(frame, (120, self.line_position + 30), 
+                              (120, self.line_position + 10), self.backward_color, 2)
+                cv2.putText(frame, "OUT", (130, self.line_position + 25),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.backward_color, 2)
         else:
             cv2.line(frame, (self.line_position, 0), (self.line_position, self.frame_height), 
                      self.line_color, 2)
+            
+            # Add direction arrows for bidirectional
+            if self.is_bidirectional:
+                # Arrow pointing right (forward)
+                cv2.arrowedLine(frame, (self.line_position - 30, 50), 
+                              (self.line_position - 10, 50), self.forward_color, 2)
+                cv2.putText(frame, "IN", (self.line_position - 35, 45),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.forward_color, 2)
+                
+                # Arrow pointing left (backward)
+                cv2.arrowedLine(frame, (self.line_position + 30, 120), 
+                              (self.line_position + 10, 120), self.backward_color, 2)
+                cv2.putText(frame, "OUT", (self.line_position + 15, 115),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.backward_color, 2)
     
     def draw_counter(self, frame, show_minute_count=True):
-        """Draw counter information with FPS stats."""
+        """Draw counter information with support for bidirectional counts."""
         overlay = frame.copy()
-        box_height = 180 if show_minute_count else 160
-        cv2.rectangle(overlay, (10, 10), (300, box_height), (0, 0, 0), -1)
+        
+        if self.is_bidirectional:
+            box_height = 240 if show_minute_count else 200
+        else:
+            box_height = 200 if show_minute_count else 180
+            
+        cv2.rectangle(overlay, (10, 10), (320, box_height), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
         
         # Calculate runtime
@@ -135,66 +195,196 @@ class EnhancedPeopleCounter:
         
         # Display information
         y_offset = 35
-        info_lines = [
-            f"Total Count: {self.total_count}",
-            f"This Hour: {self.hour_count}",
-        ]
+        info_lines = [f"Model: {os.path.basename(self.model_path)}"]
         
-        if show_minute_count:
-            info_lines.append(f"This Minute: {self.minute_count}")
+        if self.is_bidirectional:
+            # Show bidirectional counts
+            if self.direction == 'bidirectional_horizontal':
+                forward_label, backward_label = "Down↓", "Up↑"
+            else:
+                forward_label, backward_label = "Right→", "Left←"
+            
+            info_lines.extend([
+                f"═══ {forward_label} (IN) ═══",
+                f"Total: {self.counts['forward']['total']}",
+                f"Hour: {self.counts['forward']['hour']}"
+            ])
+            if show_minute_count:
+                info_lines.append(f"Minute: {self.counts['forward']['minute']}")
+            
+            info_lines.extend([
+                f"═══ {backward_label} (OUT) ═══",
+                f"Total: {self.counts['backward']['total']}",
+                f"Hour: {self.counts['backward']['hour']}"
+            ])
+            if show_minute_count:
+                info_lines.append(f"Minute: {self.counts['backward']['minute']}")
+            
+            total_all = self.counts['forward']['total'] + self.counts['backward']['total']
+            info_lines.append(f"═══ NET: {self.counts['forward']['total'] - self.counts['backward']['total']} ═══")
+        else:
+            # Single direction counts
+            info_lines.extend([
+                f"Total Count: {self.total_count}",
+                f"This Hour: {self.hour_count}"
+            ])
+            if show_minute_count:
+                info_lines.append(f"This Minute: {self.minute_count}")
         
         info_lines.extend([
             f"Active Tracks: {len(self.track_history)}",
-            f"Source FPS: {self.source_fps:.1f}",
-            f"Process FPS: {self.actual_process_fps:.1f} / {self.process_fps}",
             f"Runtime: {hours:02d}:{minutes:02d}"
         ])
         
         for line in info_lines:
+            # Use different colors for different sections
+            if "═══" in line:
+                color = (0, 255, 255)  # Cyan for headers
+            elif "IN" in line or "Down" in line or "Right" in line:
+                color = self.forward_color
+            elif "OUT" in line or "Up" in line or "Left" in line:
+                color = self.backward_color
+            elif "NET" in line:
+                color = (0, 255, 0)  # Green for net
+            else:
+                color = self.text_color
+                
             cv2.putText(frame, line, (20, y_offset), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.text_color, 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             y_offset += 20
     
     def check_line_crossing(self, track_id, current_x, current_y):
-        """Check if person crossed the line."""
-        if track_id in self.crossed_ids:
-            return False
-        
+        """Check if person crossed the line and in which direction."""
         history = self.track_history[track_id]
         if len(history) < 2:
-            return False
+            return None
         
         prev_positions = history[-5:] if len(history) >= 5 else history[:-1]
         
-        if self.direction == 'top_to_bottom':
-            was_above = any(pos[1] < self.line_position for pos in prev_positions)
-            is_below = current_y > self.line_position
-            if was_above and is_below:
-                self.crossed_ids.add(track_id)
-                return True
+        if self.is_bidirectional:
+            # Check both directions for bidirectional counting
+            if self.direction == 'bidirectional_horizontal':
+                # Check top to bottom (forward)
+                if track_id not in self.crossed_ids_forward:
+                    was_above = any(pos[1] < self.line_position for pos in prev_positions)
+                    is_below = current_y > self.line_position
+                    if was_above and is_below:
+                        self.crossed_ids_forward.add(track_id)
+                        return 'forward'
                 
-        elif self.direction == 'bottom_to_top':
-            was_below = any(pos[1] > self.line_position for pos in prev_positions)
-            is_above = current_y < self.line_position
-            if was_below and is_above:
-                self.crossed_ids.add(track_id)
-                return True
+                # Check bottom to top (backward)
+                if track_id not in self.crossed_ids_backward:
+                    was_below = any(pos[1] > self.line_position for pos in prev_positions)
+                    is_above = current_y < self.line_position
+                    if was_below and is_above:
+                        self.crossed_ids_backward.add(track_id)
+                        return 'backward'
+                        
+            elif self.direction == 'bidirectional_vertical':
+                # Check left to right (forward)
+                if track_id not in self.crossed_ids_forward:
+                    was_left = any(pos[0] < self.line_position for pos in prev_positions)
+                    is_right = current_x > self.line_position
+                    if was_left and is_right:
+                        self.crossed_ids_forward.add(track_id)
+                        return 'forward'
                 
-        elif self.direction == 'left_to_right':
-            was_left = any(pos[0] < self.line_position for pos in prev_positions)
-            is_right = current_x > self.line_position
-            if was_left and is_right:
-                self.crossed_ids.add(track_id)
-                return True
-                
-        elif self.direction == 'right_to_left':
-            was_right = any(pos[0] > self.line_position for pos in prev_positions)
-            is_left = current_x < self.line_position
-            if was_right and is_left:
-                self.crossed_ids.add(track_id)
-                return True
+                # Check right to left (backward)
+                if track_id not in self.crossed_ids_backward:
+                    was_right = any(pos[0] > self.line_position for pos in prev_positions)
+                    is_left = current_x < self.line_position
+                    if was_right and is_left:
+                        self.crossed_ids_backward.add(track_id)
+                        return 'backward'
+        else:
+            # Single direction checking
+            if track_id in self.crossed_ids:
+                return None
+            
+            if self.direction == 'top_to_bottom':
+                was_above = any(pos[1] < self.line_position for pos in prev_positions)
+                is_below = current_y > self.line_position
+                if was_above and is_below:
+                    self.crossed_ids.add(track_id)
+                    return 'single'
+                    
+            elif self.direction == 'bottom_to_top':
+                was_below = any(pos[1] > self.line_position for pos in prev_positions)
+                is_above = current_y < self.line_position
+                if was_below and is_above:
+                    self.crossed_ids.add(track_id)
+                    return 'single'
+                    
+            elif self.direction == 'left_to_right':
+                was_left = any(pos[0] < self.line_position for pos in prev_positions)
+                is_right = current_x > self.line_position
+                if was_left and is_right:
+                    self.crossed_ids.add(track_id)
+                    return 'single'
+                    
+            elif self.direction == 'right_to_left':
+                was_right = any(pos[0] > self.line_position for pos in prev_positions)
+                is_left = current_x < self.line_position
+                if was_right and is_left:
+                    self.crossed_ids.add(track_id)
+                    return 'single'
         
-        return False
+        return None
+    
+    def increment_counts(self, direction):
+        """Increment counts based on crossing direction."""
+        if self.is_bidirectional:
+            if direction == 'forward':
+                self.counts['forward']['total'] += 1
+                self.counts['forward']['minute'] += 1
+                self.counts['forward']['hour'] += 1
+            elif direction == 'backward':
+                self.counts['backward']['total'] += 1
+                self.counts['backward']['minute'] += 1
+                self.counts['backward']['hour'] += 1
+        else:
+            self.people_count += 1
+            self.minute_count += 1
+            self.hour_count += 1
+            self.total_count += 1
+    
+    def reset_minute_counts(self):
+        """Reset minute counters."""
+        if self.is_bidirectional:
+            self.counts['forward']['minute'] = 0
+            self.counts['backward']['minute'] = 0
+        else:
+            self.minute_count = 0
+    
+    def reset_hour_counts(self):
+        """Reset hour counters."""
+        if self.is_bidirectional:
+            self.counts['forward']['hour'] = 0
+            self.counts['backward']['hour'] = 0
+        else:
+            self.hour_count = 0
+    
+    def get_minute_counts(self):
+        """Get minute counts for MQTT."""
+        if self.is_bidirectional:
+            return {
+                'in': self.counts['forward']['minute'],
+                'out': self.counts['backward']['minute'],
+                'net': self.counts['forward']['minute'] - self.counts['backward']['minute']
+            }
+        else:
+            return {'count': self.minute_count}
+    
+    def get_total_counts(self):
+        """Get total counts."""
+        if self.is_bidirectional:
+            return {
+                'in': self.counts['forward']['total'],
+                'out': self.counts['backward']['total'],
+                'net': self.counts['forward']['total'] - self.counts['backward']['total']
+            }
+        else:
+            return {'total': self.total_count}
     
     def process_frame(self, frame):
         """Process frame with error handling."""
@@ -217,7 +407,7 @@ class EnhancedPeopleCounter:
             
             self.last_process_time = current_time
             
-            # Run YOLO detection and tracking - FORCE GPU WITH INTEGER 0
+            # Run YOLO detection and tracking
             results = self.model.track(
                 frame, 
                 persist=True, 
@@ -225,7 +415,7 @@ class EnhancedPeopleCounter:
                 conf=0.3,
                 iou=0.5,
                 classes=[0],  # Person class
-                device=0 if torch.cuda.is_available() else 'cpu',  # MUST BE INTEGER 0 FOR GPU
+                device=0 if torch.cuda.is_available() else 'cpu',
                 verbose=False  # Reduce console output
             )
             
@@ -251,17 +441,25 @@ class EnhancedPeopleCounter:
                     self.track_history[track_id].pop(0)
                 
                 # Check for line crossing
-                if self.check_line_crossing(track_id, x, y):
-                    self.people_count += 1
-                    self.minute_count += 1
-                    self.hour_count += 1
-                    self.total_count += 1
+                crossing_direction = self.check_line_crossing(track_id, x, y)
+                if crossing_direction:
+                    self.increment_counts(crossing_direction)
                 
-                # Draw bounding box
+                # Draw bounding box with appropriate color
                 x1, y1 = int(x - w/2), int(y - h/2)
                 x2, y2 = int(x + w/2), int(y + h/2)
                 
-                color = (0, 255, 255) if track_id in self.crossed_ids else self.box_color
+                # Color based on crossing status
+                if self.is_bidirectional:
+                    if track_id in self.crossed_ids_forward:
+                        color = self.forward_color
+                    elif track_id in self.crossed_ids_backward:
+                        color = self.backward_color
+                    else:
+                        color = self.box_color
+                else:
+                    color = (0, 255, 255) if track_id in self.crossed_ids else self.box_color
+                
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, f"ID: {track_id}", (x1, y1 - 10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -286,36 +484,38 @@ class EnhancedPeopleCounter:
 
 
 class MultiStreamThingsBoard:
-    """Multi-stream counter with ThingsBoard integration."""
+    """Multi-stream counter with ThingsBoard integration and bidirectional counting."""
     
     def __init__(self, urls_file, thingsboard_host='192.168.1.11', 
                  access_token='mAYztIXMLIris3zAIcsJ', process_fps=5, 
-                 direction='top_to_bottom', model='yolo12n.pt', 
-                 line_position_ratio=0.75, enable_thingsboard=True):
+                 direction='top_to_bottom', default_model='yolo11x.pt', 
+                 line_position_ratio=0.7, enable_thingsboard=True):
         """
         Initialize multi-stream counter with ThingsBoard.
         
         Args:
-            urls_file: Path to file with RTSP URLs
+            urls_file: Path to file with RTSP URLs and optional model specifications
             thingsboard_host: ThingsBoard server IP
             access_token: ThingsBoard device access token
             process_fps: Frames to process per second
             direction: Counting direction
-            model: YOLO model to use
+            default_model: Default YOLO model to use
             line_position_ratio: Line position (0.0-1.0)
+            enable_thingsboard: Enable ThingsBoard telemetry
         """
         self.urls_file = urls_file
         self.thingsboard_host = thingsboard_host
         self.access_token = access_token
         self.default_process_fps = process_fps
         self.default_direction = direction
-        self.default_model = model
+        self.default_model = default_model
         self.line_position_ratio = line_position_ratio
         self.enable_thingsboard = enable_thingsboard
         
         self.threads = []
         self.counters = {}
         self.running = True
+        self.loaded_models = {}  # Cache for loaded models
         
         # MQTT setup (only if enabled)
         if self.enable_thingsboard:
@@ -357,7 +557,15 @@ class MultiStreamThingsBoard:
             print("⚠ MQTT disconnected unexpectedly")
     
     def load_urls_from_file(self):
-        """Load RTSP URLs from file."""
+        """
+        Load RTSP URLs from file with optional per-camera model specification.
+        
+        File format supports:
+        - Simple URL: rtsp://192.168.1.100/stream
+        - URL with model: rtsp://192.168.1.100/stream|yolo11n.pt
+        - URL with model and direction: rtsp://192.168.1.100/stream|yolo11n.pt|bidirectional_horizontal
+        - Comments: # This is a comment
+        """
         if not os.path.exists(self.urls_file):
             raise FileNotFoundError(f"URLs file not found: {self.urls_file}")
         
@@ -368,11 +576,23 @@ class MultiStreamThingsBoard:
         if not lines:
             raise ValueError(f"No URLs found in {self.urls_file}")
         
-        print(f"✓ Found {len(lines)} cameras")
+        print(f"✓ Found {len(lines)} camera configurations")
         
-        for idx, url in enumerate(lines):
+        for idx, line in enumerate(lines):
+            parts = line.split('|')
+            url = parts[0].strip()
+            
+            # Parse optional model specification
+            model = parts[1].strip() if len(parts) > 1 else self.default_model
+            
+            # Parse optional direction specification
+            direction = parts[2].strip() if len(parts) > 2 else self.default_direction
+            
+            # Parse optional FPS specification
+            process_fps = int(parts[3].strip()) if len(parts) > 3 else self.default_process_fps
+            
+            # Create unique camera name
             try:
-                # Create unique camera name
                 if '@' in url:
                     ip_part = url.split('@')[1].split(':')[0].replace('.', '_')
                     name = f"cam_{ip_part}"
@@ -384,39 +604,78 @@ class MultiStreamThingsBoard:
             config = {
                 'name': name,
                 'url': url,
-                'model': self.default_model,
-                'direction': self.default_direction,
-                'process_fps': self.default_process_fps,
+                'model': model,
+                'direction': direction,
+                'process_fps': process_fps,
                 'window_index': idx
             }
             configs.append(config)
+            
+            # Show direction type
+            if direction in ['bidirectional_horizontal', 'bidirectional_vertical']:
+                dir_display = f"{direction} (IN/OUT)"
+            else:
+                dir_display = direction
+            
+            print(f"  {name}: model={model}, direction={dir_display}, fps={process_fps}")
         
         return configs
     
     def send_mqtt_counts(self):
-        """Send counts to ThingsBoard and reset minute counters."""
+        """Send counts to ThingsBoard with support for bidirectional counting."""
         if not self.mqtt_client:
             return
         
         telemetry = {}
-        total_minute_count = 0
+        total_minute_in = 0
+        total_minute_out = 0
+        total_minute_single = 0
         has_data = False
         
         for name, counter in self.counters.items():
-            if counter.minute_count > 0:
-                telemetry[f"{name}_count"] = counter.minute_count
-                telemetry[f"{name}_total"] = counter.total_count
-                total_minute_count += counter.minute_count
-                print(f"  {name}: {counter.minute_count} people (Total: {counter.total_count})")
-                has_data = True
-                counter.minute_count = 0  # Reset minute counter
+            counts = counter.get_minute_counts()
+            totals = counter.get_total_counts()
+            
+            if counter.is_bidirectional:
+                # Send bidirectional counts
+                if counts['in'] > 0 or counts['out'] > 0:
+                    telemetry[f"{name}_in"] = counts['in']
+                    telemetry[f"{name}_out"] = counts['out']
+                    telemetry[f"{name}_net"] = counts['net']
+                    telemetry[f"{name}_total_in"] = totals['in']
+                    telemetry[f"{name}_total_out"] = totals['out']
+                    telemetry[f"{name}_total_net"] = totals['net']
+                    
+                    total_minute_in += counts['in']
+                    total_minute_out += counts['out']
+                    
+                    print(f"  {name}: IN={counts['in']}, OUT={counts['out']}, NET={counts['net']} (Total IN={totals['in']}, OUT={totals['out']})")
+                    has_data = True
+            else:
+                # Send single direction counts
+                if counts['count'] > 0:
+                    telemetry[f"{name}_count"] = counts['count']
+                    telemetry[f"{name}_total"] = totals['total']
+                    total_minute_single += counts['count']
+                    print(f"  {name}: {counts['count']} people (Total: {totals['total']})")
+                    has_data = True
+            
+            # Reset minute counts
+            counter.reset_minute_counts()
         
         if has_data:
-            telemetry['total_count'] = total_minute_count
-            telemetry['all_cameras_total'] = sum(c.total_count for c in self.counters.values())
+            # Add aggregate counts
+            if total_minute_in > 0 or total_minute_out > 0:
+                telemetry['total_in'] = total_minute_in
+                telemetry['total_out'] = total_minute_out
+                telemetry['total_net'] = total_minute_in - total_minute_out
+            
+            if total_minute_single > 0:
+                telemetry['total_count'] = total_minute_single
+            
             try:
                 self.mqtt_client.publish('v1/devices/me/telemetry', json.dumps(telemetry), 1)
-                print(f"→ Sent to ThingsBoard: {total_minute_count} this minute, {telemetry['all_cameras_total']} total")
+                print(f"→ Sent to ThingsBoard: IN={total_minute_in}, OUT={total_minute_out}, Single={total_minute_single}")
             except Exception as e:
                 print(f"⚠ MQTT publish error: {e}")
     
@@ -426,22 +685,45 @@ class MultiStreamThingsBoard:
             return
         
         telemetry = {}
-        total_hour_count = 0
+        total_hour_in = 0
+        total_hour_out = 0
+        total_hour_single = 0
         
         print(f"\n[{datetime.now().strftime('%H:00')}] Sending hourly counts to ThingsBoard...")
         
         for name, counter in self.counters.items():
-            if counter.hour_count > 0:
-                telemetry[f"{name}_hourly"] = counter.hour_count
-                total_hour_count += counter.hour_count
-                print(f"  {name}: {counter.hour_count} people this hour")
-                counter.hour_count = 0  # Reset hour counter
+            if counter.is_bidirectional:
+                hour_in = counter.counts['forward']['hour']
+                hour_out = counter.counts['backward']['hour']
+                if hour_in > 0 or hour_out > 0:
+                    telemetry[f"{name}_hourly_in"] = hour_in
+                    telemetry[f"{name}_hourly_out"] = hour_out
+                    telemetry[f"{name}_hourly_net"] = hour_in - hour_out
+                    total_hour_in += hour_in
+                    total_hour_out += hour_out
+                    print(f"  {name}: IN={hour_in}, OUT={hour_out} this hour")
+            else:
+                if counter.hour_count > 0:
+                    telemetry[f"{name}_hourly"] = counter.hour_count
+                    total_hour_single += counter.hour_count
+                    print(f"  {name}: {counter.hour_count} people this hour")
+            
+            # Reset hour counts
+            counter.reset_hour_counts()
         
         if telemetry:
-            telemetry['total_hourly'] = total_hour_count
+            # Add aggregate hourly counts
+            if total_hour_in > 0 or total_hour_out > 0:
+                telemetry['total_hourly_in'] = total_hour_in
+                telemetry['total_hourly_out'] = total_hour_out
+                telemetry['total_hourly_net'] = total_hour_in - total_hour_out
+            
+            if total_hour_single > 0:
+                telemetry['total_hourly'] = total_hour_single
+            
             try:
                 self.mqtt_client.publish('v1/devices/me/telemetry', json.dumps(telemetry), 1)
-                print(f"→ Sent hourly data: {total_hour_count} total")
+                print(f"→ Sent hourly data: IN={total_hour_in}, OUT={total_hour_out}, Single={total_hour_single}")
             except Exception as e:
                 print(f"⚠ MQTT hourly publish error: {e}")
     
@@ -474,9 +756,15 @@ class MultiStreamThingsBoard:
         """Process a single stream with error recovery."""
         name = config['name']
         url = config['url']
+        model = config['model']
+        direction = config['direction']
         window_index = config.get('window_index', 0)
         
-        print(f"✓ Starting {name}")
+        # Show direction info
+        if direction in ['bidirectional_horizontal', 'bidirectional_vertical']:
+            print(f"✓ Starting {name} with model {model} (bidirectional counting)")
+        else:
+            print(f"✓ Starting {name} with model {model} ({direction})")
         
         # Window setup
         window_name = f"{name}"
@@ -497,12 +785,12 @@ class MultiStreamThingsBoard:
         
         while self.running:
             try:
-                # Create/recreate counter
+                # Create/recreate counter with specified model and direction
                 counter = EnhancedPeopleCounter(
                     rtsp_url=url,
-                    model_path=config['model'],
+                    model_path=model,
                     process_fps=config['process_fps'],
-                    direction=config['direction'],
+                    direction=direction,  # Use the specified direction
                     line_position_ratio=self.line_position_ratio
                 )
                 
@@ -593,15 +881,40 @@ class MultiStreamThingsBoard:
         cv2.destroyWindow(window_name)
     
     def print_statistics(self):
-        """Print periodic statistics."""
+        """Print periodic statistics with bidirectional support."""
         while self.running:
             time.sleep(60)  # Every minute
             
             if not self.running:
                 break
             
-            total = sum(c.people_count for c in self.counters.values())
-            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Total: {total} people")
+            # Group counts by model and type
+            model_counts = defaultdict(lambda: {'single': 0, 'in': 0, 'out': 0, 'cameras': []})
+            
+            for name, counter in self.counters.items():
+                model = counter.model_path
+                model_counts[model]['cameras'].append(name)
+                
+                if counter.is_bidirectional:
+                    model_counts[model]['in'] += counter.counts['forward']['total']
+                    model_counts[model]['out'] += counter.counts['backward']['total']
+                else:
+                    model_counts[model]['single'] += counter.total_count
+            
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Statistics:")
+            
+            total_in = sum(data['in'] for data in model_counts.values())
+            total_out = sum(data['out'] for data in model_counts.values())
+            total_single = sum(data['single'] for data in model_counts.values())
+            
+            print(f"  Total: IN={total_in}, OUT={total_out}, Single={total_single}")
+            
+            for model, data in model_counts.items():
+                model_name = os.path.basename(model)
+                if data['in'] > 0 or data['out'] > 0:
+                    print(f"  {model_name}: IN={data['in']}, OUT={data['out']} ({len(data['cameras'])} cameras)")
+                if data['single'] > 0:
+                    print(f"  {model_name}: {data['single']} ({len(data['cameras'])} cameras)")
     
     def run(self):
         """Start all streams and monitoring."""
@@ -618,13 +931,20 @@ class MultiStreamThingsBoard:
             print("⚠ GPU not available, using CPU")
             print("  For GPU support, ensure CUDA PyTorch is installed")
         
+        # Count models and directions being used
+        models_in_use = set(config['model'] for config in self.stream_configs)
+        directions_in_use = set(config['direction'] for config in self.stream_configs)
+        bidirectional_count = sum(1 for config in self.stream_configs 
+                                 if config['direction'] in ['bidirectional_horizontal', 'bidirectional_vertical'])
+        
         print(f"\n{'='*50}")
         print(f"Configuration:")
         print(f"  Cameras: {len(self.stream_configs)}")
+        print(f"  Bidirectional cameras: {bidirectional_count}")
+        print(f"  Models in use: {', '.join(os.path.basename(m) for m in models_in_use)}")
         print(f"  Line position: {self.line_position_ratio:.0%} from top/left")
-        print(f"  Direction: {self.default_direction}")
-        print(f"  Process FPS: {self.default_process_fps}")
-        print(f"  Model: {self.default_model}")
+        print(f"  Default direction: {self.default_direction}")
+        print(f"  Default process FPS: {self.default_process_fps}")
         
         if self.enable_thingsboard:
             print(f"\nThingsBoard:")
@@ -670,32 +990,55 @@ class MultiStreamThingsBoard:
         
         # Final counts
         print(f"\n{'='*50}")
-        print("Final counts:")
+        print("Final counts by camera:")
         for name, counter in self.counters.items():
-            print(f"  {name}: {counter.people_count} total")
+            model_name = os.path.basename(counter.model_path)
+            if counter.is_bidirectional:
+                totals = counter.get_total_counts()
+                print(f"  {name} ({model_name}): IN={totals['in']}, OUT={totals['out']}, NET={totals['net']}")
+            else:
+                print(f"  {name} ({model_name}): {counter.total_count} total")
         print(f"{'='*50}")
 
 
 def main():
     """Main function."""
-    parser = argparse.ArgumentParser(description='Multi-stream people counter with ThingsBoard')
+    parser = argparse.ArgumentParser(
+        description='Multi-stream people counter with bidirectional counting and per-camera models',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+URLs file format examples:
+  Simple:                 rtsp://192.168.1.100/stream
+  With model:             rtsp://192.168.1.100/stream|yolo11n.pt
+  With direction:         rtsp://192.168.1.100/stream|yolo11x.pt|left_to_right
+  Bidirectional:          rtsp://192.168.1.100/stream|yolo11x.pt|bidirectional_horizontal
+  Full options:           rtsp://192.168.1.100/stream|yolo11x.pt|bidirectional_vertical|10
+                          (URL | model | direction | FPS)
+
+Direction options:
+  Single directions:      top_to_bottom, bottom_to_top, left_to_right, right_to_left
+  Bidirectional:          bidirectional_horizontal (counts both up/down)
+                          bidirectional_vertical (counts both left/right)
+        """
+    )
     parser.add_argument('--urls-file', type=str, required=True,
-                       help='Path to file with RTSP URLs')
+                       help='Path to file with RTSP URLs and optional model specifications')
     parser.add_argument('--thingsboard-host', type=str, default='192.168.1.11',
                        help='ThingsBoard server IP (default: 192.168.1.11)')
     parser.add_argument('--access-token', type=str, default='mAYztIXMLIris3zAIcsJ',
-                       help='ThingsBoard device access token (default: mAYztIXMLIris3zAIcsJ)')
+                       help='ThingsBoard device access token')
     parser.add_argument('--no-thingsboard', action='store_true',
                        help='Disable ThingsBoard telemetry (run standalone)')
     parser.add_argument('--process-fps', type=int, default=5,
-                       help='Frames to process per second (default: 5)')
+                       help='Default frames to process per second (default: 5)')
     parser.add_argument('--direction', type=str, default='top_to_bottom',
-                       choices=['top_to_bottom', 'bottom_to_top', 'left_to_right', 'right_to_left'],
-                       help='Counting direction (default: top_to_bottom)')
-    parser.add_argument('--model', type=str, default='yolo12n.pt',
-                       help='YOLO model to use (default: yolo12n.pt)')
-    parser.add_argument('--line-position', type=float, default=0.75,
-                       help='Line position ratio (0.0-1.0, default: 0.75)')
+                       choices=['top_to_bottom', 'bottom_to_top', 'left_to_right', 'right_to_left',
+                               'bidirectional_horizontal', 'bidirectional_vertical'],
+                       help='Default counting direction (default: top_to_bottom)')
+    parser.add_argument('--model', type=str, default='yolo11x.pt',
+                       help='Default YOLO model to use (default: yolo11x.pt)')
+    parser.add_argument('--line-position', type=float, default=0.7,
+                       help='Line position ratio (0.0-1.0, default: 0.7)')
     
     args = parser.parse_args()
     
@@ -706,7 +1049,7 @@ def main():
         access_token=args.access_token,
         process_fps=args.process_fps,
         direction=args.direction,
-        model=args.model,
+        default_model=args.model,
         line_position_ratio=args.line_position,
         enable_thingsboard=not args.no_thingsboard
     )
