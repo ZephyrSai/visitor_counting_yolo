@@ -1,29 +1,173 @@
-# Example URLs file with per-camera model and bidirectional counting
-# Format: URL|model|direction|fps
-# All fields except URL are optional
+# ================================================================
+# Multi-Stream People Counter - Camera Configuration File
+# ================================================================
+# Format: URL|model|direction|fps|line_position
+# 
+# Fields:
+#   URL:           RTSP stream URL (required)
+#   model:         YOLO model file (optional, default: yolo11x.pt)
+#   direction:     Counting direction (optional, default: top_to_bottom)
+#   fps:           Frames per second to process (optional, default: 5)
+#   line_position: Position of counting line 0.0-1.0 (optional, default: 0.7)
+#
+# Direction Options:
+#   - top_to_bottom, bottom_to_top, left_to_right, right_to_left
+#   - bidirectional_horizontal (counts both up/down as IN/OUT)
+#   - bidirectional_vertical (counts both left/right as IN/OUT)
+#
+# Line Position Guide:
+#   0.1-0.2 = Very early detection (wide entrances)
+#   0.3-0.4 = Early detection (standard entrances)  
+#   0.5     = Center (balanced)
+#   0.6-0.7 = Standard (default, reduces false positives)
+#   0.8-0.9 = Late detection (narrow passages, exits)
+# ================================================================
 
-# BIDIRECTIONAL COUNTING - Counts both IN and OUT
-# Camera at entrance/exit - counts people going both ways
-rtsp://admin:pass@192.168.1.100:554/entrance|yolo11x.pt|bidirectional_horizontal
-rtsp://admin:pass@192.168.1.101:554/hallway|yolo11x.pt|bidirectional_vertical
+# -------------------- RETAIL STORE EXAMPLE --------------------
 
-# SINGLE DIRECTION COUNTING
-# Cameras using yolo11n.pt (lightweight model for simple scenes)
-rtsp://admin:pass@192.168.1.102:554/stream|yolo11n.pt|top_to_bottom
-rtsp://admin:pass@192.168.1.103:554/stream|yolo11n.pt|bottom_to_top
+# Main entrance - bidirectional counting with early detection
+# High accuracy model, 5 FPS, line at 30% for early customer greeting
+rtsp://admin:Store2024@192.168.1.10:554/entrance|yolo11x.pt|bidirectional_horizontal|5|0.3
 
-# Mixed configurations
-# Bidirectional with large model for complex entrance
-rtsp://admin:pass@192.168.1.104:554/main_entrance|yolo12l.pt|bidirectional_horizontal|3
+# Side entrance - single direction entry only
+# Light model, 8 FPS, line at 40% for good lead time
+rtsp://admin:Store2024@192.168.1.11:554/side_entry|yolo11n.pt|top_to_bottom|8|0.4
 
-# Single direction with standard model
-rtsp://admin:pass@192.168.1.105:554/stream|yolo11x.pt|left_to_right|5
+# Exit door - single direction exit only
+# Light model, 8 FPS, line at 80% to confirm actual exit
+rtsp://admin:Store2024@192.168.1.12:554/exit|yolo11n.pt|bottom_to_top|8|0.8
 
-# Camera with all options specified (bidirectional vertical counting)
-rtsp://admin:pass@192.168.1.106:554/corridor|yolo11x.pt|bidirectional_vertical|10
+# Checkout area - track customers leaving checkout
+# Standard model, 5 FPS, line at 85% after payment completion
+rtsp://admin:Store2024@192.168.1.13:554/checkout|yolo11s.pt|left_to_right|5|0.85
 
-# Camera using default settings (will use command line parameters)
-rtsp://admin:pass@192.168.1.107:554/stream
+# Storage/Staff area - low traffic monitoring
+# Light model, 2 FPS, line at 90% to minimize false detections
+rtsp://admin:Store2024@192.168.1.14:554/storage|yolo11n.pt|left_to_right|2|0.9
 
-# Another bidirectional example for store entrance
-rtsp://admin:pass@192.168.1.108:554/store_door|yolo11x.pt|bidirectional_horizontal|5
+# -------------------- OFFICE BUILDING EXAMPLE --------------------
+
+# Main lobby - high traffic bidirectional
+# Large model for crowds, 5 FPS, line at 25% for early detection
+rtsp://admin:Office123@10.0.0.10:554/lobby|yolo11l.pt|bidirectional_horizontal|5|0.25
+
+# Elevator bank 1 - bidirectional vertical counting
+# Standard model, 5 FPS, center line at 50%
+rtsp://admin:Office123@10.0.0.11:554/elevator1|yolo11s.pt|bidirectional_vertical|5|0.5
+
+# Elevator bank 2 - bidirectional vertical counting
+# Standard model, 5 FPS, center line at 50%
+rtsp://admin:Office123@10.0.0.12:554/elevator2|yolo11s.pt|bidirectional_vertical|5|0.5
+
+# Stairwell bottom - counting people going up
+# Light model, 3 FPS, line at 30% to catch them early
+rtsp://admin:Office123@10.0.0.13:554/stairs_bottom|yolo11n.pt|bottom_to_top|3|0.3
+
+# Stairwell top - counting people going down
+# Light model, 3 FPS, line at 70% standard position
+rtsp://admin:Office123@10.0.0.14:554/stairs_top|yolo11n.pt|top_to_bottom|3|0.7
+
+# Conference room A - bidirectional for occupancy
+# High accuracy model, 5 FPS, line at 20% for very early detection
+rtsp://admin:Office123@10.0.0.15:554/conf_room_a|yolo11x.pt|bidirectional_horizontal|5|0.2
+
+# Conference room B - bidirectional for occupancy
+# High accuracy model, 5 FPS, line at 20% for very early detection
+rtsp://admin:Office123@10.0.0.16:554/conf_room_b|yolo11x.pt|bidirectional_horizontal|5|0.2
+
+# Cafeteria entrance - lunch rush monitoring
+# Large model for crowds, 8 FPS during peak, line at 35%
+rtsp://admin:Office123@10.0.0.17:554/cafeteria|yolo11l.pt|bidirectional_horizontal|8|0.35
+
+# -------------------- TRANSPORTATION HUB EXAMPLE --------------------
+
+# Main station entrance - very wide area
+# Large model, 10 FPS, line at 15% for maximum lead time
+rtsp://admin:Transit2024@172.16.0.10:554/main_entrance|yolo11l.pt|bidirectional_horizontal|10|0.15
+
+# Turnstile 1 - post-payment counting
+# Standard model, 8 FPS, line at 90% after turnstile
+rtsp://admin:Transit2024@172.16.0.11:554/turnstile1|yolo11s.pt|top_to_bottom|8|0.9
+
+# Turnstile 2 - post-payment counting
+# Standard model, 8 FPS, line at 90% after turnstile
+rtsp://admin:Transit2024@172.16.0.12:554/turnstile2|yolo11s.pt|top_to_bottom|8|0.9
+
+# Platform A access - bidirectional platform monitoring
+# High accuracy model, 5 FPS, center line at 50%
+rtsp://admin:Transit2024@172.16.0.13:554/platform_a|yolo11x.pt|bidirectional_vertical|5|0.5
+
+# Platform B access - bidirectional platform monitoring
+# High accuracy model, 5 FPS, center line at 50%
+rtsp://admin:Transit2024@172.16.0.14:554/platform_b|yolo11x.pt|bidirectional_vertical|5|0.5
+
+# Emergency exit 1 - early warning for evacuations
+# Light model for speed, 5 FPS, line at 20% for early alert
+rtsp://admin:Transit2024@172.16.0.15:554/emergency1|yolo11n.pt|bottom_to_top|5|0.2
+
+# Emergency exit 2 - early warning for evacuations
+# Light model for speed, 5 FPS, line at 20% for early alert
+rtsp://admin:Transit2024@172.16.0.16:554/emergency2|yolo11n.pt|bottom_to_top|5|0.2
+
+# -------------------- SHOPPING MALL EXAMPLE --------------------
+
+# Mall main entrance - heavy traffic bidirectional
+# Large model, 8 FPS, line at 25% for early detection
+rtsp://admin:Mall2024@192.168.2.10:554/main|yolo11l.pt|bidirectional_horizontal|8|0.25
+
+# Food court entrance - bidirectional counting
+# Standard model, 5 FPS, line at 40%
+rtsp://admin:Mall2024@192.168.2.11:554/foodcourt|yolo11x.pt|bidirectional_horizontal|5|0.4
+
+# Parking entrance pedestrian door
+# Standard model, 5 FPS, line at 30%
+rtsp://admin:Mall2024@192.168.2.12:554/parking_entry|yolo11s.pt|top_to_bottom|5|0.3
+
+# Restroom corridor - privacy-conscious placement
+# Light model, 3 FPS, line at 10% (very early, before restroom area)
+rtsp://admin:Mall2024@192.168.2.13:554/restroom_corridor|yolo11n.pt|bidirectional_horizontal|3|0.1
+
+# -------------------- SIMPLE EXAMPLES --------------------
+
+# Camera using all defaults (will use command line parameters)
+rtsp://admin:password@192.168.1.100:554/stream
+
+# Camera with only model specified
+rtsp://admin:password@192.168.1.101:554/stream|yolo11n.pt
+
+# Camera with model and direction
+rtsp://admin:password@192.168.1.102:554/stream|yolo11x.pt|left_to_right
+
+# Camera with model, direction, and FPS
+rtsp://admin:password@192.168.1.103:554/stream|yolo11x.pt|bidirectional_horizontal|10
+
+# Camera with all parameters specified
+rtsp://admin:password@192.168.1.104:554/stream|yolo11l.pt|bidirectional_vertical|5|0.45
+
+# -------------------- SPECIAL SCENARIOS --------------------
+
+# Narrow doorway - very late detection to avoid false counts
+rtsp://admin:pass@192.168.3.10:554/narrow_door|yolo11n.pt|top_to_bottom|5|0.95
+
+# Wide open area - very early detection for maximum coverage
+rtsp://admin:pass@192.168.3.11:554/plaza|yolo11l.pt|bidirectional_horizontal|8|0.1
+
+# Escalator bottom - people stepping on
+rtsp://admin:pass@192.168.3.12:554/escalator_bottom|yolo11s.pt|bottom_to_top|10|0.2
+
+# Escalator top - people stepping off
+rtsp://admin:pass@192.168.3.13:554/escalator_top|yolo11s.pt|top_to_bottom|10|0.8
+
+# Security checkpoint - after screening area
+rtsp://admin:pass@192.168.3.14:554/security|yolo11x.pt|left_to_right|5|0.9
+
+# -------------------- NOTES --------------------
+# 1. Adjust line positions based on camera angle and mounting height
+# 2. Use lower values (0.1-0.3) for early detection in wide areas
+# 3. Use higher values (0.7-0.9) for narrow passages to reduce false counts
+# 4. Bidirectional counting works best with center lines (0.4-0.6)
+# 5. Higher FPS = more accurate tracking but more GPU usage
+# 6. Choose models based on scene complexity:
+#    - yolo11n.pt: Fast, good for simple scenes
+#    - yolo11x.pt: Balanced, good for most scenarios
+#    - yolo11l.pt: Accurate, best for crowded/complex scenes
