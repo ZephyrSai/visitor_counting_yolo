@@ -558,12 +558,13 @@ class MultiStreamThingsBoard:
     
     def load_urls_from_file(self):
         """
-        Load RTSP URLs from file with optional per-camera model specification.
+        Load RTSP URLs from file with optional per-camera specifications.
         
         File format supports:
         - Simple URL: rtsp://192.168.1.100/stream
         - URL with model: rtsp://192.168.1.100/stream|yolo11n.pt
         - URL with model and direction: rtsp://192.168.1.100/stream|yolo11n.pt|bidirectional_horizontal
+        - Full options: rtsp://192.168.1.100/stream|yolo11n.pt|bidirectional_horizontal|5|0.7
         - Comments: # This is a comment
         """
         if not os.path.exists(self.urls_file):
@@ -591,6 +592,9 @@ class MultiStreamThingsBoard:
             # Parse optional FPS specification
             process_fps = int(parts[3].strip()) if len(parts) > 3 else self.default_process_fps
             
+            # Parse optional line position specification (NEW)
+            line_position = float(parts[4].strip()) if len(parts) > 4 else self.line_position_ratio
+            
             # Create unique camera name
             try:
                 if '@' in url:
@@ -607,6 +611,7 @@ class MultiStreamThingsBoard:
                 'model': model,
                 'direction': direction,
                 'process_fps': process_fps,
+                'line_position': line_position,  # Add line position to config
                 'window_index': idx
             }
             configs.append(config)
@@ -617,7 +622,7 @@ class MultiStreamThingsBoard:
             else:
                 dir_display = direction
             
-            print(f"  {name}: model={model}, direction={dir_display}, fps={process_fps}")
+            print(f"  {name}: model={model}, direction={dir_display}, fps={process_fps}, line={line_position:.1%}")
         
         return configs
     
@@ -758,13 +763,14 @@ class MultiStreamThingsBoard:
         url = config['url']
         model = config['model']
         direction = config['direction']
+        line_position = config.get('line_position', self.line_position_ratio)  # Use per-camera line position
         window_index = config.get('window_index', 0)
         
         # Show direction info
         if direction in ['bidirectional_horizontal', 'bidirectional_vertical']:
-            print(f"✓ Starting {name} with model {model} (bidirectional counting)")
+            print(f"✓ Starting {name} with model {model} (bidirectional counting, line at {line_position:.1%})")
         else:
-            print(f"✓ Starting {name} with model {model} ({direction})")
+            print(f"✓ Starting {name} with model {model} ({direction}, line at {line_position:.1%})")
         
         # Window setup
         window_name = f"{name}"
@@ -785,13 +791,13 @@ class MultiStreamThingsBoard:
         
         while self.running:
             try:
-                # Create/recreate counter with specified model and direction
+                # Create/recreate counter with specified model, direction, and line position
                 counter = EnhancedPeopleCounter(
                     rtsp_url=url,
                     model_path=model,
                     process_fps=config['process_fps'],
-                    direction=direction,  # Use the specified direction
-                    line_position_ratio=self.line_position_ratio
+                    direction=direction,
+                    line_position_ratio=line_position  # Use per-camera line position
                 )
                 
                 self.counters[name] = counter
@@ -1011,9 +1017,10 @@ URLs file format examples:
   Simple:                 rtsp://192.168.1.100/stream
   With model:             rtsp://192.168.1.100/stream|yolo11n.pt
   With direction:         rtsp://192.168.1.100/stream|yolo11x.pt|left_to_right
-  Bidirectional:          rtsp://192.168.1.100/stream|yolo11x.pt|bidirectional_horizontal
-  Full options:           rtsp://192.168.1.100/stream|yolo11x.pt|bidirectional_vertical|10
-                          (URL | model | direction | FPS)
+  With FPS:               rtsp://192.168.1.100/stream|yolo11x.pt|top_to_bottom|10
+  With line position:     rtsp://192.168.1.100/stream|yolo11x.pt|top_to_bottom|10|0.5
+  Bidirectional:          rtsp://192.168.1.100/stream|yolo11x.pt|bidirectional_horizontal|5|0.3
+                          (URL | model | direction | FPS | line_position)
 
 Direction options:
   Single directions:      top_to_bottom, bottom_to_top, left_to_right, right_to_left
