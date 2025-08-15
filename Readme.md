@@ -107,31 +107,39 @@ wget https://github.com/ultralytics/assets/releases/download/v8.2.0/yolo11l.pt
 Create `cameras.txt` with flexible per-camera settings:
 
 ```bash
-# Format: URL|model|direction|fps
+# Format: URL|model|direction|fps|line_position
 # All fields except URL are optional
 
-# BIDIRECTIONAL COUNTING - Counts both IN and OUT
-rtsp://admin:pass@192.168.1.100:554/entrance|yolo11x.pt|bidirectional_horizontal
-rtsp://admin:pass@192.168.1.101:554/hallway|yolo11x.pt|bidirectional_vertical
+# BIDIRECTIONAL COUNTING with custom line positions
+# Main entrance - early detection at 30%
+rtsp://admin:pass@192.168.1.100:554/entrance|yolo11x.pt|bidirectional_horizontal|5|0.3
 
-# SINGLE DIRECTION with lightweight model
-rtsp://admin:pass@192.168.1.102:554/stream|yolo11n.pt|top_to_bottom|10
+# Hallway - center line at 50%
+rtsp://admin:pass@192.168.1.101:554/hallway|yolo11x.pt|bidirectional_vertical|5|0.5
 
-# Complex entrance with large model and bidirectional
-rtsp://admin:pass@192.168.1.104:554/main_door|yolo11l.pt|bidirectional_horizontal|3
+# SINGLE DIRECTION with various line positions
+# Entry door - very early detection at 20%
+rtsp://admin:pass@192.168.1.102:554/entry|yolo11n.pt|top_to_bottom|10|0.2
 
-# Using defaults from command line
+# Exit door - late detection at 80%
+rtsp://admin:pass@192.168.1.103:554/exit|yolo11n.pt|bottom_to_top|10|0.8
+
+# Complex entrance - large model, slow FPS, line at 40%
+rtsp://admin:pass@192.168.1.104:554/main_door|yolo11l.pt|bidirectional_horizontal|3|0.4
+
+# Using defaults from command line (no line position specified)
 rtsp://admin:pass@192.168.1.105:554/stream
 ```
 
 ### Configuration Options Per Camera
 
-| Field | Options | Description |
-|-------|---------|-------------|
-| **URL** | RTSP URL | Camera stream URL (required) |
-| **Model** | yolo11n.pt, yolo11x.pt, yolo11l.pt | YOLO model to use |
-| **Direction** | See below | Counting direction |
-| **FPS** | 1-30 | Frames to process per second |
+| Field | Options | Description | Example |
+|-------|---------|-------------|---------|
+| **URL** | RTSP URL | Camera stream URL (required) | rtsp://admin:pass@192.168.1.100:554/stream |
+| **Model** | yolo11n.pt, yolo11x.pt, yolo11l.pt | YOLO model to use | yolo11x.pt |
+| **Direction** | See direction options below | Counting direction | bidirectional_horizontal |
+| **FPS** | 1-30 | Frames to process per second | 5 |
+| **Line Position** | 0.0-1.0 | Position of counting line | 0.3 (30% from top/left) |
 
 ### Direction Options
 
@@ -277,28 +285,81 @@ Create widgets in ThingsBoard for:
 
 ### Recommended Configurations
 
-**Store Entrance (Bidirectional):**
+**Store Entrance (Bidirectional with early detection):**
 ```
-rtsp://url|yolo11x.pt|bidirectional_horizontal|5
-```
-
-**Hallway (Simple):**
-```
-rtsp://url|yolo11n.pt|left_to_right|10
+rtsp://url|yolo11x.pt|bidirectional_horizontal|5|0.3
 ```
 
-**Crowded Area:**
+**Narrow Hallway (Simple with late detection):**
 ```
-rtsp://url|yolo11l.pt|bidirectional_horizontal|3
+rtsp://url|yolo11n.pt|left_to_right|10|0.8
+```
+
+**Crowded Area (Heavy model with center line):**
+```
+rtsp://url|yolo11l.pt|bidirectional_horizontal|3|0.5
+```
+
+**Escalator/Stairs (Direction-specific with custom lines):**
+```
+# Bottom of escalator - early detection
+rtsp://url|yolo11s.pt|bottom_to_top|5|0.2
+
+# Top of escalator - late detection
+rtsp://url|yolo11s.pt|top_to_bottom|5|0.8
 ```
 
 ## 🎯 Line Position Guide
 
-| Position | Value | Use Case |
-|----------|-------|----------|
-| Near entrance | 0.2-0.3 | Early detection |
-| Center | 0.4-0.6 | Balanced counting |
-| Near exit | 0.7-0.9 | Late detection |
+### Per-Camera Line Position
+Each camera can have its own line position (0.0 to 1.0):
+
+| Position | Value Range | Use Case | Example |
+|----------|-------------|----------|---------|
+| **Very Early** | 0.1-0.2 | Wide entrances, maximum lead time | Store entrance: 0.15 |
+| **Early** | 0.3-0.4 | Standard entrances, good lead time | Office lobby: 0.35 |
+| **Center** | 0.5 | Balanced detection, general purpose | Hallway: 0.5 |
+| **Standard** | 0.6-0.7 | Default, reduces false positives | Most cameras: 0.7 |
+| **Late** | 0.8-0.9 | Narrow passages, exit confirmation | Doorways: 0.85 |
+
+### Line Position Examples by Scenario
+
+**Retail Store Setup:**
+```bash
+# cameras.txt
+# Wide entrance - early detection for greeting customers
+rtsp://url|yolo11x.pt|bidirectional_horizontal|5|0.25
+
+# Narrow aisles - late detection to avoid false counts
+rtsp://url|yolo11n.pt|left_to_right|10|0.8
+
+# Checkout area - center line for balanced counting
+rtsp://url|yolo11s.pt|top_to_bottom|5|0.5
+```
+
+**Office Building:**
+```bash
+# Main lobby - early detection at 30%
+rtsp://url|yolo11l.pt|bidirectional_horizontal|5|0.3
+
+# Elevator exit - late detection at 85%
+rtsp://url|yolo11x.pt|bidirectional_vertical|5|0.85
+
+# Stairwell - center detection at 50%
+rtsp://url|yolo11n.pt|bottom_to_top|3|0.5
+```
+
+**Transportation Hub:**
+```bash
+# Wide platform entrance - very early at 20%
+rtsp://url|yolo11x.pt|bidirectional_horizontal|8|0.2
+
+# Turnstile exit - very late at 90%
+rtsp://url|yolo11s.pt|top_to_bottom|10|0.9
+
+# Escalator top - standard at 70%
+rtsp://url|yolo11n.pt|bidirectional_horizontal|5|0.7
+```
 
 ## 🚨 Troubleshooting
 
@@ -358,32 +419,55 @@ torch.cuda.set_per_process_memory_fraction(0.8)
 ## 📊 Example Deployment Scenarios
 
 ### Retail Store Setup
-```
-# cameras.txt
-# Main entrance - bidirectional with high accuracy
-rtsp://admin:pass@192.168.1.10:554/entrance|yolo11x.pt|bidirectional_horizontal|5
+```bash
+# cameras.txt with per-camera line positions
+# Main entrance - bidirectional with early detection (30%)
+rtsp://admin:pass@192.168.1.10:554/entrance|yolo11x.pt|bidirectional_horizontal|5|0.3
 
-# Side entrances - single direction, lighter model
-rtsp://admin:pass@192.168.1.11:554/side1|yolo11n.pt|top_to_bottom|8
-rtsp://admin:pass@192.168.1.12:554/side2|yolo11n.pt|bottom_to_top|8
+# Side entrances - single direction with different line positions
+rtsp://admin:pass@192.168.1.11:554/side1|yolo11n.pt|top_to_bottom|8|0.4
+rtsp://admin:pass@192.168.1.12:554/side2|yolo11n.pt|bottom_to_top|8|0.6
 
-# Storage area - low traffic, minimal processing
-rtsp://admin:pass@192.168.1.13:554/storage|yolo11n.pt|left_to_right|2
+# Checkout area - late detection to confirm exit (85%)
+rtsp://admin:pass@192.168.1.13:554/checkout|yolo11s.pt|left_to_right|5|0.85
+
+# Storage area - low traffic, late detection (90%)
+rtsp://admin:pass@192.168.1.14:554/storage|yolo11n.pt|left_to_right|2|0.9
 ```
 
 ### Office Building Setup
+```bash
+# cameras.txt with strategic line placements
+# Lobby - high traffic bidirectional, early detection (25%)
+rtsp://admin:pass@10.0.0.10:554/lobby|yolo11l.pt|bidirectional_horizontal|5|0.25
+
+# Elevator areas - medium traffic, center lines (50%)
+rtsp://admin:pass@10.0.0.11:554/elevator1|yolo11s.pt|bidirectional_vertical|5|0.5
+rtsp://admin:pass@10.0.0.12:554/elevator2|yolo11s.pt|bidirectional_vertical|5|0.5
+
+# Stairwells - directional counting with different line positions
+rtsp://admin:pass@10.0.0.13:554/stairs_up|yolo11n.pt|bottom_to_top|3|0.3
+rtsp://admin:pass@10.0.0.14:554/stairs_down|yolo11n.pt|top_to_bottom|3|0.7
+
+# Conference room entrances - very early detection (20%)
+rtsp://admin:pass@10.0.0.15:554/conf_room1|yolo11x.pt|bidirectional_horizontal|5|0.2
 ```
-# cameras.txt
-# Lobby - high traffic bidirectional
-rtsp://admin:pass@10.0.0.10:554/lobby|yolo11l.pt|bidirectional_horizontal|5
 
-# Elevator areas - medium traffic
-rtsp://admin:pass@10.0.0.11:554/elevator1|yolo11s.pt|bidirectional_vertical|5
-rtsp://admin:pass@10.0.0.12:554/elevator2|yolo11s.pt|bidirectional_vertical|5
+### Transportation Hub Setup
+```bash
+# cameras.txt for transit station
+# Main entrance - wide area, very early detection (15%)
+rtsp://admin:pass@172.16.0.10:554/main|yolo11l.pt|bidirectional_horizontal|10|0.15
 
-# Stairwells - directional counting
-rtsp://admin:pass@10.0.0.13:554/stairs_up|yolo11n.pt|bottom_to_top|3
-rtsp://admin:pass@10.0.0.14:554/stairs_down|yolo11n.pt|top_to_bottom|3
+# Turnstiles - late detection after payment (90%)
+rtsp://admin:pass@172.16.0.11:554/turnstile1|yolo11s.pt|top_to_bottom|8|0.9
+rtsp://admin:pass@172.16.0.12:554/turnstile2|yolo11s.pt|top_to_bottom|8|0.9
+
+# Platform access - bidirectional with center line (50%)
+rtsp://admin:pass@172.16.0.13:554/platform_a|yolo11x.pt|bidirectional_vertical|5|0.5
+
+# Emergency exits - early warning detection (20%)
+rtsp://admin:pass@172.16.0.14:554/emergency1|yolo11n.pt|bottom_to_top|5|0.2
 ```
 
 ## 🔒 Security Considerations
