@@ -29,7 +29,7 @@ A high-performance, GPU-accelerated people counting system for multiple RTSP str
 
 ```bash
 https://github.com/ZephyrSai/visitor_counting_yolo
-cd people-counter
+cd visitor_counting_yolo
 ```
 
 ### 2. Install Base Dependencies
