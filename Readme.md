@@ -28,7 +28,7 @@ A high-performance, GPU-accelerated people counting system for multiple RTSP str
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/people-counter.git
+https://github.com/ZephyrSai/visitor_counting_yolo
 cd people-counter
 ```
 
@@ -276,7 +276,7 @@ Create widgets in ThingsBoard for:
 ### Model Comparison
 
 | Model | Speed | Accuracy | Use Case |
-|-------|-------|----------|------------|----------|
+|-------|-------|----------|------------|
 | **yolo11n.pt** | Fastest | Good | Simple scenes, high FPS needs |
 | **yolo11s.pt** | Fast | Better | Balanced performance |
 | **yolo11m.pt** | Moderate | High | Standard surveillance |
